@@ -141,6 +141,9 @@ async def generate(
             output_dir=Path(app_config.output.directory)
         )
         
+        # Generate timestamp prefix for this batch
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
         # Get user prompt
         if input:
             with open(input) as f:
@@ -174,8 +177,11 @@ async def generate(
             
         # Generate images
         for i in range(count):
-            image_number = str(i + 1).zfill(3)
-            output_path = Path(app_config.output.directory) / f"image_{image_number}.{format}"
+            # Generate sequence number with padding
+            seq_num = str(i + 1).zfill(3)
+            
+            # Generate unique filename: timestamp_sequence.ext
+            output_filename = f"{timestamp}_{seq_num}"
             
             console.print(f"\n[yellow]Generating image {i+1} of {count}...[/yellow]")
             
@@ -186,22 +192,21 @@ async def generate(
                 prompt=prompt_data["generation"]["prompt"],
                 negative_prompt=prompt_data["generation"]["negative_prompt"],
                 parameters=ImageParameters(**prompt_data["generation"]["parameters"]),
-                output_path=output_path
+                output_path=Path(app_config.output.directory) / f"{output_filename}.{format}"
             )
             
             generation_time = time.time() - start_time
             generation_result["generation_time"] = generation_time
             
-            # Save metadata
-            metadata_path = metadata_handler.save_metadata(
-                image_path=output_path,
+            # Save metadata with the same base filename
+            metadata_handler.save_metadata(
+                image_path=Path(app_config.output.directory) / f"{output_filename}.{format}",
                 prompt_data=prompt_data,
                 generation_result=generation_result,
                 original_prompt=user_prompt
             )
             
-            console.print(f"[green]Image generated: {output_path}[/green]")
-            console.print(f"[green]Metadata saved: {metadata_path}[/green]")
+            console.print(f"[green]Generated {output_filename}.{format}[/green]")
             
         console.print("\n[green]All images generated successfully![/green]")
         
