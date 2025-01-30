@@ -1,0 +1,15 @@
+anthropic:
+  model: claude-3-sonnet
+  api_key: sk-test-key
+
+stability:
+  model: stable-diffusion-v3
+  api_key: sk-test-key
+
+output:
+  format: png
+  directory: ./test_output
+
+logging:
+  level: DEBUG
+  file: test.log

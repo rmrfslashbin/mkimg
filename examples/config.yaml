@@ -1,0 +1,17 @@
+anthropic:
+  model: claude-3-sonnet
+  # Add your API key here or use environment variable
+  # api_key: sk-...
+
+stability:
+  model: stable-diffusion-v3
+  # Add your API key here or use environment variable
+  # api_key: sk-...
+
+output:
+  format: png
+  directory: ./output
+
+logging:
+  level: INFO
+  file: app.log

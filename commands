@@ -1,0 +1,4 @@
+# Create project directory and initialize Poetry
+mkdir stable-diffusion-prompt-generator
+cd stable-diffusion-prompt-generator
+poetry init 
