@@ -21,10 +21,13 @@ class AnthropicModel(str, Enum):
     OPUS = "claude-3-opus-20240229"
     SONNET = "claude-3-sonnet-20240229"
     HAIKU = "claude-3-haiku-20240229"
+    OPUS_LATEST = "claude-3-opus-latest"
+    SONNET_LATEST = "claude-3-5-sonnet-latest"
+    HAIKU_LATEST = "claude-3-5-haiku-latest"
 
 class AnthropicConfig(BaseModel):
     api_key: str = Field(..., pattern=r"^sk-ant-")
-    model: AnthropicModel = Field(default=AnthropicModel.OPUS)
+    model: AnthropicModel = Field(default=AnthropicModel.SONNET_LATEST)
 
     @field_validator("api_key")
     def validate_api_key(cls, v: str) -> str:
