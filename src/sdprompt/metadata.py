@@ -29,6 +29,9 @@ class MetadataHandler:
         """Save metadata for generated image"""
         verification_time = datetime.now()
         
+        # Determine which platform was used based on generation_result
+        is_bfl = "flux" in generation_result.get("engine", "").lower()
+        
         # Create metadata structure with only needed fields
         metadata = {
             "timestamp": verification_time,
@@ -37,8 +40,8 @@ class MetadataHandler:
             "image_parameters": {
                 "cfg_scale": prompt_data["generation"]["parameters"].get("cfg_scale", 7.0),
                 "format": image_path.suffix[1:],  # Remove leading dot
-                "seed": generation_result["generation_settings"].get("seed"),
-                "aspect_ratio": prompt_data["generation"]["parameters"].get("aspect_ratio")
+                "width": generation_result["generation_settings"].get("width", 1024),
+                "height": generation_result["generation_settings"].get("height", 1024)
             },
             "image_verification": {
                 "size_bytes": image_path.stat().st_size,
@@ -47,12 +50,14 @@ class MetadataHandler:
             },
             "model_info": {
                 "anthropic": {
-                    "model": "claude-3-haiku",  # Update to match current model
+                    "model": "claude-3-sonnet",
                     "version": "1.0"
                 },
-                "stability": {
-                    "model": "stable-diffusion-v3",
-                    "version": "3.0"
+                # Use appropriate model info based on platform
+                "generator": {
+                    "model": generation_result["engine"],
+                    "platform": "Black Forest Labs" if is_bfl else "Stability AI",
+                    "version": "1.0"
                 }
             },
             "status": {

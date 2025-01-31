@@ -25,6 +25,13 @@ class AnthropicModel(str, Enum):
     SONNET_LATEST = "claude-3-5-sonnet-latest"
     HAIKU_LATEST = "claude-3-5-haiku-latest"
 
+class BFLModel(str, Enum):
+    """Valid models for Black Forest Labs API"""
+    FLUX_PRO_11_ULTRA = "flux-pro-1.1-ultra"
+    FLUX_PRO_11 = "flux-pro-1.1"
+    FLUX_PRO = "flux-pro"
+    FLUX_DEV = "flux-dev"
+
 class AnthropicConfig(BaseModel):
     api_key: str = Field(..., pattern=r"^sk-ant-")
     model: AnthropicModel = Field(default=AnthropicModel.SONNET_LATEST)
@@ -43,6 +50,17 @@ class StabilityConfig(BaseModel):
     def validate_api_key(cls, v: str) -> str:
         if not re.match(r"^sk-[a-zA-Z0-9]{48}$", v):
             raise ValueError("Invalid Stability API key format")
+        return v
+
+class BFLConfig(BaseModel):
+    api_key: str
+    model: BFLModel = Field(default=BFLModel.FLUX_PRO_11)
+    base_url: str = Field(default="https://api.us1.bfl.ai/v1")
+
+    @field_validator("api_key")
+    def validate_api_key(cls, v: str) -> str:
+        if not v:
+            raise ValueError("BFL API key cannot be empty")
         return v
 
 class OutputConfig(BaseModel):
@@ -75,6 +93,7 @@ class LoggingConfig(BaseModel):
 class AppConfig(BaseModel):
     anthropic: AnthropicConfig
     stability: StabilityConfig
+    bfl: BFLConfig
     output: OutputConfig = OutputConfig()
     logging: LoggingConfig = LoggingConfig()
 
@@ -106,6 +125,9 @@ class ConfigBuilder:
             "ANTHROPIC_MODEL": ("anthropic", "model"),
             "STABILITY_API_KEY": ("stability", "api_key"),
             "STABILITY_MODEL": ("stability", "model"),
+            "BFL_API_KEY": ("bfl", "api_key"),        # Add BFL mappings
+            "BFL_MODEL": ("bfl", "model"),
+            "BFL_BASE_URL": ("bfl", "base_url"),
             "OUTPUT_FORMAT": ("output", "format"),
             "OUTPUT_DIR": ("output", "directory"),
             "LOG_LEVEL": ("logging", "level"),
@@ -125,6 +147,9 @@ class ConfigBuilder:
             "anthropic_model": ("anthropic", "model"),
             "stability_api_key": ("stability", "api_key"),
             "stability_model": ("stability", "model"),
+            "bfl_api_key": ("bfl", "api_key"),        # Add BFL mappings
+            "bfl_model": ("bfl", "model"),
+            "bfl_base_url": ("bfl", "base_url"),
             "output_format": ("output", "format"),
             "output_dir": ("output", "directory"),
             "log_level": ("logging", "level"),

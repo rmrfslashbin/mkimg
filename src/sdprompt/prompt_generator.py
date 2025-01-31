@@ -58,18 +58,10 @@ class PromptGenerator:
             response = await self.client.messages.create(
                 model=self.model,
                 max_tokens=1024,
+                system=await self._get_system_prompt(),  # System prompt as top-level parameter
                 messages=[{
                     "role": "user",
-                    "content": f"""Analyze this image generation prompt and help optimize it for Stable Diffusion. 
-                    Return a JSON object with these fields:
-                    - generation.prompt: The optimized prompt
-                    - generation.negative_prompt: Things to avoid (optional)
-                    - generation.parameters: Dictionary of generation parameters
-                    - analysis.style: Detected style
-                    - analysis.subject: Main subject
-                    - analysis.mood: Overall mood/tone
-                    
-                    User prompt: {prompt}"""
+                    "content": f"Analyze this prompt and return a JSON object with the specified fields: {prompt}"
                 }]
             )
             
@@ -78,10 +70,14 @@ class PromptGenerator:
             # Find JSON block
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if not json_match:
-                raise ValueError("No valid JSON found in response")
-                
-            # Parse response
-            result = json.loads(json_match.group())
+                # If no JSON found, try to parse the entire response
+                try:
+                    result = json.loads(content)
+                except json.JSONDecodeError:
+                    logging.error(f"Failed to parse response: {content}")
+                    raise ValueError("Invalid response format from Claude")
+            else:
+                result = json.loads(json_match.group())
             
             # Validate and adjust parameters
             params = result.get("generation", {}).get("parameters", {})
@@ -110,6 +106,8 @@ class PromptGenerator:
             return result
             
         except Exception as e:
+            logging.error(f"Error analyzing prompt: {str(e)}")
+            logging.debug(f"Response content: {response.content if 'response' in locals() else 'No response'}")
             raise RuntimeError(f"Failed to analyze prompt: {str(e)}")
     
     async def _get_system_prompt(self) -> str:

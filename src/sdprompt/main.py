@@ -47,9 +47,11 @@ def format_path(path: Path) -> str:
         return str(path)
 
 @cli.command(name="generate")
+@click.argument('prompt', type=str, required=False, default='-')
 @click.option(
     "-c", "--config",
     type=click.Path(exists=True, path_type=Path),
+    default="config/config.yaml",
     help="Path to YAML config file"
 )
 @click.option(
@@ -97,8 +99,15 @@ def format_path(path: Path) -> str:
     is_flag=True,
     help="Increase output verbosity"
 )
+@click.option(
+    "--platform",
+    type=click.Choice(["stability", "bfl"]),
+    default="stability",
+    help="Image generation platform to use"
+)
 @coro
 async def generate(
+    prompt: str,
     config: Optional[Path],
     env: Optional[Path],
     input: Optional[Path],
@@ -109,9 +118,23 @@ async def generate(
     stability_model: Optional[str],
     dry_run: bool,
     verbose: bool,
+    platform: str,
 ):
-    """Generate images from prompts"""
+    """Generate images from prompts. Accepts prompt as argument or via stdin."""
     try:
+        # Get user prompt from argument or stdin
+        if prompt == '-':
+            # Read from stdin
+            if not sys.stdin.isatty():
+                user_prompt = sys.stdin.read().strip()
+            else:
+                raise click.UsageError("No prompt provided. Provide it as an argument or via stdin")
+        else:
+            user_prompt = prompt
+
+        if not user_prompt:
+            raise click.UsageError("No prompt provided")
+
         # Load configuration
         cli_args = {
             "output_format": format,
@@ -139,10 +162,19 @@ async def generate(
             model=app_config.anthropic.model
         )
         
-        image_generator = ImageGenerator(
-            api_key=app_config.stability.api_key,
-            model=app_config.stability.model
-        )
+        # Initialize image generator based on platform
+        if platform == "stability":
+            image_generator = ImageGenerator(
+                api_key=app_config.stability.api_key,
+                model=app_config.stability.model
+            )
+        else:  # bfl
+            from sdprompt.bfl_generator import BFLGenerator, BFLParameters
+            image_generator = BFLGenerator(
+                api_key=app_config.bfl.api_key,
+                model=app_config.bfl.model,
+                base_url=app_config.bfl.base_url
+            )
         
         metadata_handler = MetadataHandler(
             output_dir=Path(app_config.output.directory)
@@ -151,16 +183,6 @@ async def generate(
         # Generate timestamp prefix for this batch
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Get user prompt
-        if input:
-            with open(input) as f:
-                user_prompt = f.read().strip()
-        else:
-            user_prompt = sys.stdin.read().strip()
-            
-        if not user_prompt:
-            raise click.UsageError("No prompt provided")
-            
         console.print("[yellow]Analyzing prompt...[/yellow]")
         
         # Analyze prompt
@@ -199,10 +221,21 @@ async def generate(
             start_time = time.time()
             
             # Generate image
+            if platform == "stability":
+                parameters = ImageParameters(**prompt_data["generation"]["parameters"])
+            else:  # bfl
+                from sdprompt.bfl_generator import BFLParameters
+                # BFL only needs width and height
+                parameters = BFLParameters(
+                    width=1024,  # Default or get from prompt_data if available
+                    height=1024,
+                    model=app_config.bfl.model
+                )
+
             generation_result = await image_generator.generate_image(
                 prompt=prompt_data["generation"]["prompt"],
                 negative_prompt=prompt_data["generation"]["negative_prompt"],
-                parameters=ImageParameters(**prompt_data["generation"]["parameters"]),
+                parameters=parameters,
                 output_path=image_path
             )
             
