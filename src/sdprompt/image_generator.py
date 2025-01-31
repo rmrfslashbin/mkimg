@@ -32,9 +32,6 @@ class AspectRatio(str, Enum):
 
 class ImageParameters(BaseModel):
     """Parameters for image generation"""
-    width: int = Field(1024, ge=512, le=1024)
-    height: int = Field(1024, ge=512, le=1024)
-    steps: int = Field(30, ge=10, le=50)
     cfg_scale: float = Field(7.0, ge=1.0, le=10.0)
     seed: Optional[int] = Field(None, ge=0, le=4294967294)
     output_format: Literal["png", "jpeg"] = "png"
@@ -47,32 +44,6 @@ class ImageParameters(BaseModel):
         # Track if we made any adjustments
         adjustments = []
 
-        # Clamp width and height
-        if self.width < 512:
-            adjustments.append(f"width increased from {self.width} to 512")
-            self.width = 512
-        elif self.width > 1024:
-            adjustments.append(f"width decreased from {self.width} to 1024")
-            self.width = 1024
-
-        if self.height < 512:
-            adjustments.append(f"height increased from {self.height} to 512")
-            self.height = 512
-        elif self.height > 1024:
-            adjustments.append(f"height decreased from {self.height} to 1024")
-            self.height = 1024
-
-        # Ensure dimensions are multiples of 64
-        if self.width % 64 != 0:
-            old_width = self.width
-            self.width = ((self.width + 32) // 64) * 64  # Round to nearest multiple of 64
-            adjustments.append(f"width adjusted from {old_width} to {self.width} to be multiple of 64")
-
-        if self.height % 64 != 0:
-            old_height = self.height
-            self.height = ((self.height + 32) // 64) * 64  # Round to nearest multiple of 64
-            adjustments.append(f"height adjusted from {old_height} to {self.height} to be multiple of 64")
-
         # Clamp cfg_scale
         if self.cfg_scale < 1.0:
             adjustments.append(f"cfg_scale increased from {self.cfg_scale} to 1.0")
@@ -80,23 +51,6 @@ class ImageParameters(BaseModel):
         elif self.cfg_scale > 10.0:
             adjustments.append(f"cfg_scale decreased from {self.cfg_scale} to 10.0")
             self.cfg_scale = 10.0
-
-        # Clamp steps
-        if self.steps < 10:
-            adjustments.append(f"steps increased from {self.steps} to 10")
-            self.steps = 10
-        elif self.steps > 50:
-            adjustments.append(f"steps decreased from {self.steps} to 50")
-            self.steps = 50
-
-        # Check total pixels
-        total_pixels = self.width * self.height
-        if total_pixels < 262144:
-            adjustments.append(f"dimensions adjusted to meet minimum pixel requirement")
-            self.width = self.height = 512  # Set to minimum viable size
-        elif total_pixels > 1024 * 1024:
-            adjustments.append(f"dimensions adjusted to meet maximum pixel requirement")
-            self.width = self.height = 1024  # Set to maximum square size
 
         # Log any adjustments
         if adjustments:
@@ -161,24 +115,26 @@ class ImageGenerator:
             negative_prompt = ""
 
         try:
-            # Prepare form data
+            # Prepare form data - only include parameters that SD accepts
             form = {
                 "prompt": (None, prompt),
                 "output_format": (None, parameters.output_format),
                 "cfg_scale": (None, str(parameters.cfg_scale)),
-                "height": (None, str(parameters.height)),
-                "width": (None, str(parameters.width)),
-                "steps": (None, str(parameters.steps)),
-                "samples": (None, "1")
+                "aspect_ratio": (None, parameters.aspect_ratio)
             }
 
+            # Add seed if specified
+            if parameters.seed is not None:
+                form["seed"] = (None, str(parameters.seed))
+
+            # Add negative prompt if provided
             if negative_prompt:
                 form["negative_prompt"] = (None, negative_prompt)
 
             # Make API request with explicit timeout
             response = await self.client.post(
                 "/v2beta/stable-image/generate/sd3",
-                files=form,  # Send as multipart form data
+                files=form,
                 timeout=60.0
             )
             
@@ -191,16 +147,28 @@ class ImageGenerator:
                 except json.JSONDecodeError:
                     raise RuntimeError(f"API Error: {response.status_code} - {response.text}")
             
+            # Extract seed from response headers
+            seed = response.headers.get("Seed")  # Note: header is capitalized
+            
             # Save image directly from response content
             output_path.parent.mkdir(parents=True, exist_ok=True)
             with open(output_path, "wb") as f:
                 f.write(response.content)
-                
-            return {
+            
+            # Create generation result with seed
+            result = {
                 "success": True,
                 "engine": self.model,
                 "generation_settings": parameters.dict()
             }
+            
+            if seed:
+                try:
+                    result["generation_settings"]["seed"] = int(seed)
+                except ValueError:
+                    logging.warning(f"Invalid seed value in response: {seed}")
+                
+            return result
                 
         except httpx.TimeoutException as e:
             raise RuntimeError(f"Request timed out after {e.request.timeout} seconds")

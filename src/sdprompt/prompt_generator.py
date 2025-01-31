@@ -86,22 +86,22 @@ class PromptGenerator:
             # Validate and adjust parameters
             params = result.get("generation", {}).get("parameters", {})
             
+            # Ensure valid seed (0 if not specified or invalid)
+            if "seed" in params:
+                try:
+                    seed_val = int(params["seed"])
+                    if seed_val < 0:
+                        params["seed"] = 0
+                except (ValueError, TypeError):
+                    params["seed"] = 0
+            
             # Clamp cfg_scale
             if "cfg_scale" in params:
                 params["cfg_scale"] = min(max(float(params["cfg_scale"]), 1.0), 10.0)
             
-            # Clamp steps
-            if "steps" in params:
-                params["steps"] = min(max(int(params["steps"]), 10), 50)
-            
-            # Ensure dimensions are valid
-            if "width" in params:
-                params["width"] = min(max(int(params["width"]), 512), 1024)
-                params["width"] = ((params["width"] + 32) // 64) * 64
-            
-            if "height" in params:
-                params["height"] = min(max(int(params["height"]), 512), 1024)
-                params["height"] = ((params["height"] + 32) // 64) * 64
+            # Remove unsupported parameters
+            supported_params = {"cfg_scale", "seed", "output_format", "model", "aspect_ratio"}
+            params = {k: v for k, v in params.items() if k in supported_params}
             
             # Update result with adjusted parameters
             if "generation" in result:
@@ -115,27 +115,22 @@ class PromptGenerator:
     async def _get_system_prompt(self) -> str:
         return """Analyze image generation prompts and optimize them for Stability AI's API.
 
-Key parameters and limits (do not exceed these ranges):
+Key parameters and limits:
 - prompt: required, 1-10000 characters, should be descriptive and specific
 - negative_prompt: optional, max 10000 characters (not supported with turbo models)
-- steps: exactly 10-50 (default: 30)
-- cfg_scale: exactly 1.0-10.0 (default: 7.0)
-- dimensions: 
-  - minimum total pixels: 262,144 (e.g., 512x512)
-  - maximum total pixels: 1,048,576 (1024x1024)
-  - minimum dimension: 512px
-  - maximum dimension: 1024px
-  - must be multiples of 64
+- cfg_scale: 1.0-10.0 (default: 7.0)
 - aspect_ratio (required):
-  - 16:9 (landscape, 1024x576)
-  - 1:1 (square, 1024x1024)
-  - 21:9 (wide, 1024x448)
-  - 2:3 (portrait, 683x1024)
-  - 3:2 (landscape, 1024x683)
-  - 4:5 (portrait, 819x1024)
-  - 5:4 (landscape, 1024x819)
-  - 9:16 (portrait, 576x1024)
-  - 9:21 (wide portrait, 448x1024)
+  - 16:9 (landscape)
+  - 1:1 (square)
+  - 21:9 (wide)
+  - 2:3 (portrait)
+  - 3:2 (landscape)
+  - 4:5 (portrait)
+  - 5:4 (landscape)
+  - 9:16 (portrait)
+  - 9:21 (wide portrait)
+- output_format: png or jpeg
+- seed: optional, 0-4294967294
 - models:
   - sd3.5-large (6.5 credits, best quality)
   - sd3.5-large-turbo (4 credits, faster, no negative prompts)
@@ -150,12 +145,11 @@ Return a JSON object with:
         "prompt": "optimized prompt with style tags",
         "negative_prompt": "things to avoid (omit for turbo models)",
         "parameters": {
-            "steps": int (10-50 only),
-            "cfg_scale": float (1.0-10.0 only),
-            "width": int (512-1024, multiple of 64),
-            "height": int (512-1024, multiple of 64),
+            "cfg_scale": float (1.0-10.0),
+            "aspect_ratio": string (from aspect ratio list),
+            "output_format": string ("png" or "jpeg"),
             "model": string (from model list),
-            "aspect_ratio": string (from aspect ratio list)
+            "seed": int (optional, 0-4294967294)
         }
     },
     "analysis": {
@@ -170,10 +164,6 @@ Guidelines:
 - Include artistic style and quality terms
 - Consider composition and lighting
 - Avoid problematic content
-- Never exceed the parameter ranges:
-  - cfg_scale must be between 1.0 and 10.0
-  - steps must be between 10 and 50
-  - dimensions must be between 512 and 1024
 - Choose appropriate model based on needs:
   - Use turbo models for speed (but no negative prompts)
   - Use large models for best quality

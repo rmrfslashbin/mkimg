@@ -4,6 +4,7 @@ from typing import Dict, Any, Optional
 import yaml
 import hashlib
 from pydantic import BaseModel
+from sdprompt.utils.hash import compute_file_hash
 
 class ImageMetadata(BaseModel):
     timestamp: datetime
@@ -21,25 +22,32 @@ class MetadataHandler:
     def save_metadata(
         self,
         image_path: Path,
-        prompt_data: Dict[str, Any],
-        generation_result: Dict[str, Any],
+        prompt_data: dict,
+        generation_result: dict,
         original_prompt: str
-    ) -> Path:
+    ) -> None:
         """Save metadata for generated image"""
-        metadata_path = image_path.with_suffix('.yaml')
+        verification_time = datetime.now()
         
-        # Calculate image checksum
-        with open(image_path, 'rb') as f:
-            image_data = f.read()
-            checksum = hashlib.sha256(image_data).hexdigest()
-        
-        metadata = ImageMetadata(
-            timestamp=datetime.utcnow(),
-            original_prompt=original_prompt,
-            generated_prompt=prompt_data["generation"]["prompt"],
-            model_info={
+        # Create metadata structure with only needed fields
+        metadata = {
+            "timestamp": verification_time,
+            "original_prompt": original_prompt,
+            "generated_prompt": prompt_data["generation"]["prompt"],
+            "image_parameters": {
+                "cfg_scale": prompt_data["generation"]["parameters"].get("cfg_scale", 7.0),
+                "format": image_path.suffix[1:],  # Remove leading dot
+                "seed": generation_result["generation_settings"].get("seed"),
+                "aspect_ratio": prompt_data["generation"]["parameters"].get("aspect_ratio")
+            },
+            "image_verification": {
+                "size_bytes": image_path.stat().st_size,
+                "checksum_sha256": compute_file_hash(image_path),
+                "verification_time": verification_time.isoformat()
+            },
+            "model_info": {
                 "anthropic": {
-                    "model": "claude-3-sonnet",
+                    "model": "claude-3-haiku",  # Update to match current model
                     "version": "1.0"
                 },
                 "stability": {
@@ -47,27 +55,16 @@ class MetadataHandler:
                     "version": "3.0"
                 }
             },
-            image_parameters={
-                **prompt_data["generation"]["parameters"],
-                "format": image_path.suffix[1:],
-                "seed": generation_result.get("seed")
-            },
-            image_verification={
-                "checksum_sha256": checksum,
-                "size_bytes": len(image_data),
-                "verification_time": datetime.utcnow().isoformat()
-            },
-            status={
-                "success": True,
+            "status": {
+                "success": generation_result["success"],
                 "generation_time": generation_result.get("generation_time", 0)
             }
-        )
+        }
         
-        # Save metadata
-        with open(metadata_path, 'w') as f:
-            yaml.dump(metadata.model_dump(), f, default_flow_style=False)
-            
-        return metadata_path
+        # Save metadata to YAML file
+        metadata_path = image_path.with_suffix(".yaml")
+        with open(metadata_path, "w") as f:
+            yaml.safe_dump(metadata, f, sort_keys=False, allow_unicode=True)
     
     def load_metadata(self, path: Path) -> ImageMetadata:
         """Load metadata from file"""

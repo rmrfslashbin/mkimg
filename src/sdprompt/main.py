@@ -209,7 +209,7 @@ async def generate(
             generation_time = time.time() - start_time
             generation_result["generation_time"] = generation_time
             
-            # Save metadata with the same base filename
+            # Save metadata using MetadataHandler
             metadata_handler.save_metadata(
                 image_path=image_path,
                 prompt_data=prompt_data,
