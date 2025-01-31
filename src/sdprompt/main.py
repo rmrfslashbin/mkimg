@@ -39,6 +39,13 @@ def coro(f):
         return asyncio.run(f(*args, **kwargs))
     return wrapper
 
+def format_path(path: Path) -> str:
+    """Format path for display, trying relative path first, falling back to absolute"""
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
 @cli.command(name="generate")
 @click.option(
     "-c", "--config",
@@ -183,6 +190,10 @@ async def generate(
             # Generate unique filename: timestamp_sequence.ext
             output_filename = f"{timestamp}_{seq_num}"
             
+            # Get full paths for output files
+            image_path = Path(app_config.output.directory) / f"{output_filename}.{format}"
+            metadata_path = Path(app_config.output.directory) / f"{output_filename}.yaml"
+            
             console.print(f"\n[yellow]Generating image {i+1} of {count}...[/yellow]")
             
             start_time = time.time()
@@ -192,7 +203,7 @@ async def generate(
                 prompt=prompt_data["generation"]["prompt"],
                 negative_prompt=prompt_data["generation"]["negative_prompt"],
                 parameters=ImageParameters(**prompt_data["generation"]["parameters"]),
-                output_path=Path(app_config.output.directory) / f"{output_filename}.{format}"
+                output_path=image_path
             )
             
             generation_time = time.time() - start_time
@@ -200,13 +211,15 @@ async def generate(
             
             # Save metadata with the same base filename
             metadata_handler.save_metadata(
-                image_path=Path(app_config.output.directory) / f"{output_filename}.{format}",
+                image_path=image_path,
                 prompt_data=prompt_data,
                 generation_result=generation_result,
                 original_prompt=user_prompt
             )
             
-            console.print(f"[green]Generated {output_filename}.{format}[/green]")
+            # Show paths to both files
+            console.print(f"[green]Generated {format_path(image_path)}[/green]")
+            console.print(f"[blue]Metadata saved to {format_path(metadata_path)}[/blue]")
             
         console.print("\n[green]All images generated successfully![/green]")
         

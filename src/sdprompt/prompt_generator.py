@@ -3,6 +3,7 @@ import json
 import re
 from pathlib import Path
 import anthropic
+from anthropic import AsyncAnthropic
 from pydantic import BaseModel, ValidationError
 from sdprompt.utils.retry import with_retry, create_progress
 import logging
@@ -45,95 +46,142 @@ class GenerationSpec(BaseModel):
     parameters: Dict[str, Any]
 
 class PromptGenerator:
-    def __init__(self, api_key: str, model: str = "claude-3-opus-20240229"):
-        self.client = anthropic.Client(api_key=api_key)
+    def __init__(self, api_key: str, model: str):
+        self.api_key = api_key
         self.model = model
-        self._system_prompt: Optional[str] = None
-        
-    @with_retry(retries=2, delay=1.0, exceptions=(anthropic.APIError, APIError))
-    async def analyze_prompt(self, user_prompt: str) -> Dict[str, Any]:
-        """Analyze user prompt using Claude with progress tracking"""
+        self.client = AsyncAnthropic(api_key=api_key)
+
+    async def analyze_prompt(self, prompt: str) -> dict:
+        """Analyze user prompt and generate optimized prompt for image generation"""
         try:
-            # Validate prompt
-            if not user_prompt.strip():
-                raise PromptValidationError("Prompt cannot be empty")
-            if len(user_prompt) > 500:
-                raise PromptValidationError("Prompt too long (max 500 characters)")
-                
-            with create_progress() as progress:
-                # Load system prompt
-                task = progress.add_task("Loading system prompt...", total=3)
-                system_prompt = await self._get_system_prompt()
-                progress.update(task, advance=1)
-                
-                # Prepare message
-                progress.update(task, description="Analyzing prompt...")
-                
-                try:
-                    # Create the message synchronously since the client handles async internally
-                    message = self.client.messages.create(
-                        model=self.model,
-                        max_tokens=1024,
-                        system=system_prompt.replace("{{user_prompt}}", user_prompt),
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": user_prompt
-                            }
-                        ],
-                        temperature=0.7,
-                    )
+            # Create message with async client
+            response = await self.client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                messages=[{
+                    "role": "user",
+                    "content": f"""Analyze this image generation prompt and help optimize it for Stable Diffusion. 
+                    Return a JSON object with these fields:
+                    - generation.prompt: The optimized prompt
+                    - generation.negative_prompt: Things to avoid (optional)
+                    - generation.parameters: Dictionary of generation parameters
+                    - analysis.style: Detected style
+                    - analysis.subject: Main subject
+                    - analysis.mood: Overall mood/tone
                     
-                    # Validate and extract the response text
-                    if not message or not isinstance(message.content, list) or not message.content:
-                        raise APIError("Invalid response format from Claude", 500)
-                    
-                    response_text = message.content[0].text
-                    if not response_text:
-                        raise APIError("Empty response from Claude", 500)
-                    
-                except anthropic.APIError as e:
-                    request_id = getattr(e, 'request_id', None)
-                    raise APIError(
-                        f"API Error: {str(e)}",
-                        status_code=getattr(e, 'status_code', 500),
-                        request_id=request_id
-                    )
+                    User prompt: {prompt}"""
+                }]
+            )
+            
+            # Extract JSON from response
+            content = response.content[0].text
+            # Find JSON block
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if not json_match:
+                raise ValueError("No valid JSON found in response")
                 
-                progress.update(task, advance=1)
-                
-                # Parse response
-                progress.update(task, description="Processing response...")
-                try:
-                    result = self._parse_response(response_text)
-                except ResponseParsingError as e:
-                    logging.error(f"Failed to parse response: {str(e)}")
-                    raise
-                
-                progress.update(task, advance=1)
-                return result
-                
-        except PromptError:
-            raise
+            # Parse response
+            result = json.loads(json_match.group())
+            
+            # Validate and adjust parameters
+            params = result.get("generation", {}).get("parameters", {})
+            
+            # Clamp cfg_scale
+            if "cfg_scale" in params:
+                params["cfg_scale"] = min(max(float(params["cfg_scale"]), 1.0), 10.0)
+            
+            # Clamp steps
+            if "steps" in params:
+                params["steps"] = min(max(int(params["steps"]), 10), 50)
+            
+            # Ensure dimensions are valid
+            if "width" in params:
+                params["width"] = min(max(int(params["width"]), 512), 1024)
+                params["width"] = ((params["width"] + 32) // 64) * 64
+            
+            if "height" in params:
+                params["height"] = min(max(int(params["height"]), 512), 1024)
+                params["height"] = ((params["height"] + 32) // 64) * 64
+            
+            # Update result with adjusted parameters
+            if "generation" in result:
+                result["generation"]["parameters"] = params
+            
+            return result
+            
         except Exception as e:
-            logging.error(f"Unexpected error: {str(e)}")
-            raise PromptAnalysisError(f"Failed to analyze prompt: {str(e)}")
+            raise RuntimeError(f"Failed to analyze prompt: {str(e)}")
     
     async def _get_system_prompt(self) -> str:
-        """Load and cache system prompt template"""
-        if self._system_prompt is None:
-            self._system_prompt = self._load_system_prompt()
-        return self._system_prompt
+        return """Analyze image generation prompts and optimize them for Stability AI's API.
+
+Key parameters and limits (do not exceed these ranges):
+- prompt: required, 1-10000 characters, should be descriptive and specific
+- negative_prompt: optional, max 10000 characters (not supported with turbo models)
+- steps: exactly 10-50 (default: 30)
+- cfg_scale: exactly 1.0-10.0 (default: 7.0)
+- dimensions: 
+  - minimum total pixels: 262,144 (e.g., 512x512)
+  - maximum total pixels: 1,048,576 (1024x1024)
+  - minimum dimension: 512px
+  - maximum dimension: 1024px
+  - must be multiples of 64
+- aspect_ratio (required):
+  - 16:9 (landscape, 1024x576)
+  - 1:1 (square, 1024x1024)
+  - 21:9 (wide, 1024x448)
+  - 2:3 (portrait, 683x1024)
+  - 3:2 (landscape, 1024x683)
+  - 4:5 (portrait, 819x1024)
+  - 5:4 (landscape, 1024x819)
+  - 9:16 (portrait, 576x1024)
+  - 9:21 (wide portrait, 448x1024)
+- models:
+  - sd3.5-large (6.5 credits, best quality)
+  - sd3.5-large-turbo (4 credits, faster, no negative prompts)
+  - sd3.5-medium (3.5 credits, balanced)
+  - sd3-large (6.5 credits)
+  - sd3-large-turbo (4 credits, no negative prompts)
+  - sd3-medium (3.5 credits)
+
+Return a JSON object with:
+{
+    "generation": {
+        "prompt": "optimized prompt with style tags",
+        "negative_prompt": "things to avoid (omit for turbo models)",
+        "parameters": {
+            "steps": int (10-50 only),
+            "cfg_scale": float (1.0-10.0 only),
+            "width": int (512-1024, multiple of 64),
+            "height": int (512-1024, multiple of 64),
+            "model": string (from model list),
+            "aspect_ratio": string (from aspect ratio list)
+        }
+    },
+    "analysis": {
+        "style": "detected style",
+        "subject": "main subject",
+        "mood": "overall mood/tone"
+    }
+}
+
+Guidelines:
+- Keep prompts clear and focused
+- Include artistic style and quality terms
+- Consider composition and lighting
+- Avoid problematic content
+- Never exceed the parameter ranges:
+  - cfg_scale must be between 1.0 and 10.0
+  - steps must be between 10 and 50
+  - dimensions must be between 512 and 1024
+- Choose appropriate model based on needs:
+  - Use turbo models for speed (but no negative prompts)
+  - Use large models for best quality
+  - Use medium models for balance
+- Choose aspect ratio appropriate for the scene
+
+Keep prompts focused and coherent."""
     
-    def _load_system_prompt(self) -> str:
-        """Load system prompt from file"""
-        prompt_path = Path(__file__).parent / "prompts" / "system_prompt.md"
-        if not prompt_path.exists():
-            raise FileNotFoundError(f"System prompt file not found at {prompt_path}")
-            
-        with open(prompt_path) as f:
-            return f.read()
-        
     def _parse_response(self, response: str) -> Dict[str, Any]:
         """Parse Claude's response into structured format"""
         required_sections = {"ANALYSIS", "PROMPT", "TECHNICAL SPECIFICATIONS", "NEGATIVE PROMPT"}

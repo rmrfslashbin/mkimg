@@ -7,14 +7,20 @@ from dotenv import load_dotenv
 import re
 from enum import Enum
 
+class StabilityModel(str, Enum):
+    """Valid models for Stability AI API"""
+    SD3_LARGE = "sd3-large"
+    SD3_LARGE_TURBO = "sd3-large-turbo"
+    SD3_MEDIUM = "sd3-medium"
+    SD35_LARGE = "sd3.5-large"
+    SD35_LARGE_TURBO = "sd3.5-large-turbo"
+    SD35_MEDIUM = "sd3.5-medium"
+
 class AnthropicModel(str, Enum):
+    """Valid models for Anthropic API"""
     OPUS = "claude-3-opus-20240229"
     SONNET = "claude-3-sonnet-20240229"
     HAIKU = "claude-3-haiku-20240229"
-
-class StabilityModel(str, Enum):
-    SD_V3 = "stable-diffusion-xl-1024-v1-0"
-    SD_XL = "stable-diffusion-xl-1024-v1-0"
 
 class AnthropicConfig(BaseModel):
     api_key: str = Field(..., pattern=r"^sk-ant-")
@@ -28,7 +34,7 @@ class AnthropicConfig(BaseModel):
 
 class StabilityConfig(BaseModel):
     api_key: str = Field(..., pattern=r"^sk-")
-    model: StabilityModel = Field(default=StabilityModel.SD_V3)
+    model: StabilityModel = Field(default=StabilityModel.SD35_LARGE)
 
     @field_validator("api_key")
     def validate_api_key(cls, v: str) -> str:
