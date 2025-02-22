@@ -13,6 +13,7 @@ import re
 from PIL import Image
 from rich.table import Table
 from rich import box
+import os
 
 from sdprompt.config import load_config, ConfigBuilder
 from sdprompt.utils.logging import setup_logging
@@ -105,6 +106,11 @@ def format_path(path: Path) -> str:
     default="stability",
     help="Image generation platform to use"
 )
+@click.option(
+    "--open",
+    is_flag=True,
+    help="Open the generated image in the system's default application"
+)
 @coro
 async def generate(
     prompt: str,
@@ -119,6 +125,7 @@ async def generate(
     dry_run: bool,
     verbose: bool,
     platform: str,
+    open: bool,
 ):
     """Generate images from prompts. Accepts prompt as argument or via stdin."""
     try:
@@ -253,6 +260,16 @@ async def generate(
             # Show paths to both files
             console.print(f"[green]Generated {format_path(image_path)}[/green]")
             console.print(f"[blue]Metadata saved to {format_path(metadata_path)}[/blue]")
+            
+            # Open the image if the --open flag is set
+            if open:
+                console.print(f"[cyan]Opening image: {format_path(image_path)}[/cyan]")
+                if sys.platform.startswith('darwin'):
+                    os.system(f"open {image_path}")
+                elif os.name == 'nt':
+                    os.startfile(image_path)
+                elif os.name == 'posix':
+                    os.system(f"xdg-open {image_path}")
             
         console.print("\n[green]All images generated successfully![/green]")
         
