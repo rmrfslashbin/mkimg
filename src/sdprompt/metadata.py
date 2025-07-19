@@ -37,6 +37,7 @@ class MetadataHandler:
             "timestamp": verification_time,
             "original_prompt": original_prompt,
             "generated_prompt": prompt_data["generation"]["prompt"],
+            "image_filename": image_path.name,
             "image_parameters": {
                 "cfg_scale": prompt_data["generation"]["parameters"].get("cfg_scale", 7.0),
                 "format": image_path.suffix[1:],  # Remove leading dot

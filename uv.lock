@@ -1,6 +1,12 @@
 version = 1
 requires-python = ">=3.13"
 
+[manifest]
+members = [
+    "mkimg",
+    "output",
+]
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -196,6 +202,17 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rich", specifier = ">=13.9.4" },
 ]
+
+[[package]]
+name = "output"
+version = "0.1.0"
+source = { virtual = "output" }
+dependencies = [
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "pyyaml", specifier = ">=6.0.2" }]
 
 [[package]]
 name = "pillow"
